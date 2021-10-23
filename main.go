@@ -2,8 +2,11 @@ package main
 
 import (
 	"embed"
+	"fmt"
+	"log"
 	"math/rand"
 	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/faiface/beep"
@@ -16,42 +19,51 @@ var (
 	//go:embed assets/favicon.ico
 	icon []byte
 
-	//go:embed assets/audio
-	sounds embed.FS
+	//go:embed assets/audio/*
+	soundsFs embed.FS
+
+	files []string
+
+	seed = rand.NewSource(time.Now().UnixNano())
+	r    = rand.New(seed)
 )
 
 func main() {
 
-	audio, err := sounds.Open("arc-sound-effect.mp3")
-	if err != nil {
-		panic(err)
-	}
-	defer audio.Close()
+	audioFolder, _ := soundsFs.ReadDir("assets/audio")
 
-	streamer, format, err := mp3.Decode(audio)
-	if err != nil {
-		panic(err)
+	//load audio files to cache
+	for _, k := range audioFolder {
+		files = append(files, k.Name())
 	}
-	defer streamer.Close()
 
-	err = speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
-	if err != nil {
-		panic(err)
+	systray.Register(onReady, onExit)
+
+	for {
+		audio, err := soundsFs.Open("assets/audio/" + files[r.Intn(len(files))])
+		if err != nil {
+			panic(err)
+		}
+		streamer, format, err := mp3.Decode(audio)
+		if err != nil {
+			panic(err)
+		}
+		play(streamer, format)
 	}
-	defer speaker.Clear()
 
-	play(streamer)
-	systray.Run(onReady, onExit)
 }
 
-func play(streamer beep.StreamSeekCloser) {
-	go func() {
-		for {
-			speaker.Play(streamer)
-			streamer.Seek(0)
-			time.Sleep(time.Duration(rand.Intn(60) * int(time.Minute)))
-		}
-	}()
+func play(streamer beep.StreamSeekCloser, format beep.Format) {
+
+	err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
+	if err != nil {
+		panic(err)
+	}
+	defer speaker.Close()
+	t := time.Duration(r.Intn(60) * int(time.Minute))
+	speaker.Play(streamer)
+	streamer.Seek(0)
+	time.Sleep(t)
 }
 
 func onReady() {
@@ -64,16 +76,31 @@ func onReady() {
 	go func() {
 		for {
 			select {
-
 			case <-quitBtn.ClickedCh:
 				systray.Quit()
 			case <-donateBtn.ClickedCh:
-				cmd := exec.Command("cmd", "/C", "start", "https://paypal.me/elesneils")
-				cmd.Start()
+				openbrowser("https://paypal.me/elesneils")
 			}
 		}
 	}()
 
+}
+
+func openbrowser(url string) {
+	var err error
+	switch runtime.GOOS {
+	case "linux":
+		err = exec.Command("xdg-open", url).Start()
+	case "windows":
+		err = exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	case "darwin":
+		err = exec.Command("open", url).Start()
+	default:
+		err = fmt.Errorf("unsupported platform")
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 func onExit() {
