@@ -29,41 +29,39 @@ var (
 )
 
 func main() {
-
 	audioFolder, _ := soundsFs.ReadDir("assets/audio")
 
-	//load audio files to cache
 	for _, k := range audioFolder {
 		files = append(files, k.Name())
 	}
 
-	systray.Register(onReady, onExit)
-
-	for {
-		audio, err := soundsFs.Open("assets/audio/" + files[r.Intn(len(files))])
-		if err != nil {
-			panic(err)
+	go func() {
+		for {
+			audio, err := soundsFs.Open("assets/audio/" + files[r.Intn(len(files))])
+			if err != nil {
+				panic(err)
+			}
+			streamer, format, err := mp3.Decode(audio)
+			if err != nil {
+				panic(err)
+			}
+			play(streamer, format)
 		}
-		streamer, format, err := mp3.Decode(audio)
-		if err != nil {
-			panic(err)
-		}
-		play(streamer, format)
-	}
-
+	}()
+	systray.Run(onReady, onExit)
 }
 
 func play(streamer beep.StreamSeekCloser, format beep.Format) {
-
 	err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 	if err != nil {
 		panic(err)
 	}
 	defer speaker.Close()
-	t := time.Duration(r.Intn(60) * int(time.Minute))
+	t := time.Duration(r.Intn(15) * int(time.Minute))
 	speaker.Play(streamer)
 	streamer.Seek(0)
 	time.Sleep(t)
+	streamer.Close()
 }
 
 func onReady() {
@@ -71,6 +69,7 @@ func onReady() {
 	systray.SetTitle("Neco arc sound player")
 	systray.SetTooltip("Randomly plays neco-arc's sounds over time")
 	quitBtn := systray.AddMenuItem("Stop", "Stops the whole app")
+	systray.AddSeparator()
 	donateBtn := systray.AddMenuItem("Donate", "I appreciate your support")
 
 	go func() {
@@ -104,5 +103,6 @@ func openbrowser(url string) {
 }
 
 func onExit() {
-
+	speaker.Clear()
+	speaker.Close()
 }
