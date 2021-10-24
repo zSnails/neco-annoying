@@ -46,11 +46,13 @@ func main() {
 			file := audioFolder[idx].Name()
 			audio, err := soundsFs.Open("assets/audio/" + file)
 			if err != nil {
-				logrus.Panic(err)
+				logrus.Error(err)
+				return
 			}
 			streamer, format, err := mp3.Decode(audio)
 			if err != nil {
-				logrus.Panic(err)
+				logrus.Error(err)
+				return
 			}
 			logrus.Debugf("Playing audio %v", file)
 			play(streamer, format)
@@ -63,7 +65,8 @@ func main() {
 func play(streamer beep.StreamSeekCloser, format beep.Format) {
 	err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 	if err != nil {
-		logrus.Panic(err)
+		logrus.Error(err)
+		return
 	}
 
 	defer speaker.Close()
@@ -75,7 +78,8 @@ func play(streamer beep.StreamSeekCloser, format beep.Format) {
 	<-done
 	err = streamer.Err()
 	if err != nil {
-		logrus.Panic(err)
+		logrus.Error(err)
+		return
 	}
 }
 
@@ -113,7 +117,7 @@ func openbrowser(url string) {
 		err = fmt.Errorf("unsupported platform")
 	}
 	if err != nil {
-		logrus.Panic(err)
+		logrus.Error(err)
 	}
 }
 
