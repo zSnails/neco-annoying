@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"flag"
 	"fmt"
 	"math/rand"
 	"os"
@@ -25,13 +26,22 @@ var (
 
 	seed = rand.NewSource(time.Now().UnixNano())
 	r    = rand.New(seed)
+
+	outputFile string
+	maxTime    int
 )
+
+func init() {
+	flag.StringVar(&outputFile, "output", "output.log", "set the output file")
+	flag.IntVar(&maxTime, "max-time", 15, "set the max time between each audio")
+	flag.Parse()
+}
 
 func main() {
 
 	logrus.SetLevel(logrus.DebugLevel)
 
-	logOut, err := os.OpenFile("output.log", os.O_APPEND|os.O_RDONLY, 0666)
+	logOut, err := os.OpenFile(outputFile, os.O_APPEND|os.O_RDONLY|os.O_CREATE, 0666)
 	if err == nil {
 		logrus.SetOutput(logOut)
 	} else {
@@ -42,19 +52,21 @@ func main() {
 	go func() {
 		for {
 			idx := r.Intn(len(audioFolder))
-			t := time.Duration(r.Intn(15) * int(time.Minute))
+			t := time.Duration(r.Intn(maxTime) * int(time.Minute))
 			file := audioFolder[idx].Name()
+			logrus.Debug("Opening audio file")
 			audio, err := soundsFs.Open("assets/audio/" + file)
 			if err != nil {
 				logrus.Error(err)
 				return
 			}
+			logrus.Debug("Decoding audio")
 			streamer, format, err := mp3.Decode(audio)
 			if err != nil {
 				logrus.Error(err)
 				return
 			}
-			logrus.Debugf("Playing audio %v", file)
+			logrus.Infof("Playing audio %v")
 			play(streamer, format)
 			time.Sleep(t)
 		}
@@ -63,7 +75,10 @@ func main() {
 }
 
 func play(streamer beep.StreamSeekCloser, format beep.Format) {
-	err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
+	sampleRate := format.SampleRate
+	bufSize := format.SampleRate.N(time.Second / 10)
+	logrus.Debugf("Initializing speaker with SampleRate: %v, and BufferSize: %v", sampleRate, bufSize)
+	err := speaker.Init(sampleRate, bufSize)
 	if err != nil {
 		logrus.Error(err)
 		return
