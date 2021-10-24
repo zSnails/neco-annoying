@@ -31,12 +31,12 @@ func main() {
 
 	logrus.SetLevel(logrus.DebugLevel)
 
-	logOut, err := os.Create("output.log")
-	if err != nil {
+	logOut, err := os.OpenFile("output.log", os.O_APPEND|os.O_RDONLY, 0666)
+	if err == nil {
+		logrus.SetOutput(logOut)
+	} else {
 		logrus.Panic(err)
 	}
-
-	logrus.SetOutput(logOut)
 
 	audioFolder, _ := soundsFs.ReadDir("assets/audio")
 	go func() {
