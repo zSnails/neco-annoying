@@ -48,6 +48,9 @@ func main() {
 		logrus.Panic(err)
 	}
 
+	logrus.Debugf("max-time: %v", maxTime)
+	logrus.Debugf("output file name: %v", outputFile)
+
 	audioFolder, _ := soundsFs.ReadDir("assets/audio")
 	go func() {
 		for {
@@ -66,7 +69,7 @@ func main() {
 				logrus.Error(err)
 				return
 			}
-			logrus.Infof("Playing audio %v")
+			logrus.Infof("Playing audio %v", file)
 			play(streamer, format)
 			time.Sleep(t)
 		}
