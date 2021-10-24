@@ -5,4 +5,5 @@ go 1.16
 require (
 	github.com/faiface/beep v1.1.0
 	github.com/getlantern/systray v1.1.0
+	github.com/sirupsen/logrus v1.8.1
 )
