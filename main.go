@@ -3,8 +3,8 @@ package main
 import (
 	"embed"
 	"fmt"
-	"log"
 	"math/rand"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
 	"github.com/getlantern/systray"
+	"github.com/sirupsen/logrus"
 )
 
 var (
@@ -22,30 +23,38 @@ var (
 	//go:embed assets/audio/*
 	soundsFs embed.FS
 
-	files []string
-
 	seed = rand.NewSource(time.Now().UnixNano())
 	r    = rand.New(seed)
 )
 
 func main() {
-	audioFolder, _ := soundsFs.ReadDir("assets/audio")
 
-	for _, k := range audioFolder {
-		files = append(files, k.Name())
+	logrus.SetLevel(logrus.DebugLevel)
+
+	logOut, err := os.Create("output.log")
+	if err != nil {
+		logrus.Panic(err)
 	}
 
+	logrus.SetOutput(logOut)
+
+	audioFolder, _ := soundsFs.ReadDir("assets/audio")
 	go func() {
 		for {
-			audio, err := soundsFs.Open("assets/audio/" + files[r.Intn(len(files))])
+			idx := r.Intn(len(audioFolder))
+			t := time.Duration(r.Intn(15) * int(time.Minute))
+			file := audioFolder[idx].Name()
+			audio, err := soundsFs.Open("assets/audio/" + file)
 			if err != nil {
-				panic(err)
+				logrus.Panic(err)
 			}
 			streamer, format, err := mp3.Decode(audio)
 			if err != nil {
-				panic(err)
+				logrus.Panic(err)
 			}
+			logrus.Debugf("Playing audio %v", file)
 			play(streamer, format)
+			time.Sleep(t)
 		}
 	}()
 	systray.Run(onReady, onExit)
@@ -54,14 +63,20 @@ func main() {
 func play(streamer beep.StreamSeekCloser, format beep.Format) {
 	err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 	if err != nil {
-		panic(err)
+		logrus.Panic(err)
 	}
+
 	defer speaker.Close()
-	t := time.Duration(r.Intn(15) * int(time.Minute))
-	speaker.Play(streamer)
-	streamer.Seek(0)
-	time.Sleep(t)
-	streamer.Close()
+	defer streamer.Close()
+	done := make(chan bool)
+	speaker.Play(beep.Seq(streamer, beep.Callback(func() {
+		done <- true
+	})))
+	<-done
+	err = streamer.Err()
+	if err != nil {
+		logrus.Panic(err)
+	}
 }
 
 func onReady() {
@@ -98,11 +113,10 @@ func openbrowser(url string) {
 		err = fmt.Errorf("unsupported platform")
 	}
 	if err != nil {
-		log.Fatal(err)
+		logrus.Panic(err)
 	}
 }
 
 func onExit() {
-	speaker.Clear()
-	speaker.Close()
+	logrus.Info("Exitted program")
 }
