@@ -38,32 +38,21 @@ func init() {
 }
 
 func main() {
-
 	logrus.SetLevel(logrus.DebugLevel)
-
 	logOut, err := os.OpenFile(outputFile, os.O_APPEND|os.O_RDONLY|os.O_CREATE, 0666)
-	if err == nil {
-		logrus.SetOutput(logOut)
-	} else {
+	if err != nil {
 		logrus.Panic(err)
 	}
-
-	logrus.Debugf("max-time: %v", maxTime)
-	logrus.Debugf("output file name: %v", outputFile)
-
+	logrus.SetOutput(logOut)
 	audioFolder, _ := soundsFs.ReadDir("assets/audio")
 	go func() {
 		for {
-			idx := r.Intn(len(audioFolder))
-			t := time.Duration(r.Intn(maxTime) * int(time.Minute))
-			file := audioFolder[idx].Name()
-			logrus.Debug("Opening audio file")
+			file := audioFolder[r.Intn(len(audioFolder))].Name()
 			audio, err := soundsFs.Open("assets/audio/" + file)
 			if err != nil {
 				logrus.Error(err)
 				return
 			}
-			logrus.Debug("Decoding audio")
 			streamer, format, err := mp3.Decode(audio)
 			if err != nil {
 				logrus.Error(err)
@@ -71,31 +60,23 @@ func main() {
 			}
 			logrus.Infof("Playing audio %v", file)
 			play(streamer, format)
-			time.Sleep(t)
+			time.Sleep(time.Duration(r.Intn(maxTime) * int(time.Minute)))
 		}
 	}()
-	systray.Run(onReady, onExit)
+	systray.Run(onReady, nil)
 }
 
 func play(streamer beep.StreamSeekCloser, format beep.Format) {
-	sampleRate := format.SampleRate
-	bufSize := format.SampleRate.N(time.Second / 10)
-	logrus.Debugf("Initializing speaker with SampleRate: %v, and BufferSize: %v", sampleRate, bufSize)
-	err := speaker.Init(sampleRate, bufSize)
-	if err != nil {
+	if err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10)); err != nil {
 		logrus.Error(err)
 		return
 	}
-
-	defer speaker.Close()
-	defer streamer.Close()
 	done := make(chan bool)
 	speaker.Play(beep.Seq(streamer, beep.Callback(func() {
 		done <- true
 	})))
 	<-done
-	err = streamer.Err()
-	if err != nil {
+	if err := streamer.Err(); err != nil {
 		logrus.Error(err)
 		return
 	}
@@ -108,7 +89,6 @@ func onReady() {
 	quitBtn := systray.AddMenuItem("Stop", "Stops the whole app")
 	systray.AddSeparator()
 	donateBtn := systray.AddMenuItem("Donate", "I appreciate your support")
-
 	go func() {
 		for {
 			select {
@@ -119,7 +99,6 @@ func onReady() {
 			}
 		}
 	}()
-
 }
 
 func openbrowser(url string) {
@@ -137,8 +116,4 @@ func openbrowser(url string) {
 	if err != nil {
 		logrus.Error(err)
 	}
-}
-
-func onExit() {
-	logrus.Info("Exited program")
 }
