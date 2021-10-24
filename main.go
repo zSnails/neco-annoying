@@ -24,8 +24,7 @@ var (
 	//go:embed assets/audio/*
 	soundsFs embed.FS
 
-	seed = rand.NewSource(time.Now().UnixNano())
-	r    = rand.New(seed)
+	r = rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	outputFile string
 	maxTime    int
