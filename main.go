@@ -118,5 +118,5 @@ func openbrowser(url string) {
 }
 
 func onExit() {
-	logrus.Info("Exitted program")
+	logrus.Info("Exited program")
 }
