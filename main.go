@@ -12,13 +12,13 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/widget"
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/effects"
 	"github.com/faiface/beep/mp3"
 	"github.com/faiface/beep/speaker"
-	"github.com/getlantern/systray"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,9 +36,10 @@ var (
 
 	outputFile string
 	maxTime    int
-	mainApp    = app.NewWithID("neco-annoying")
-	w          = mainApp.NewWindow("Neco Annoying")
+	mApp       = app.NewWithID("Neco-Annoying")
+	mWindow    = mApp.NewWindow("Neco Arc Player")
 	volume     = binding.NewFloat()
+	iconRes    = fyne.NewStaticResource("icon", iconPng)
 )
 
 func init() {
@@ -55,24 +56,69 @@ func main() {
 	}
 	logrus.SetOutput(logOut)
 
-	volPref := mainApp.Preferences().FloatWithFallback("app-volume", 0)
+	volPref := mApp.Preferences().FloatWithFallback("app-volume", 0)
+
 	volume.Set(volPref)
-	w.SetIcon(fyne.NewStaticResource("icon", iconPng))
+
 	volumeSlider := widget.NewSliderWithData(-10, 0, volume)
 	volumeSlider.Step = 0.01
 	volumeSlider.SetValue(0)
-	w.SetContent(container.New(layout.NewMaxLayout(), widget.NewLabelWithData(binding.FloatToString(volume)), volumeSlider))
-	w.SetCloseIntercept(func() {
-		w.Hide()
+
+	mWindow.SetIcon(iconRes)
+
+	mWindow.Resize(fyne.NewSize(300, 150))
+	mWindow.SetFixedSize(true)
+	mWindow.SetContent(container.New(layout.NewMaxLayout(), widget.NewLabelWithData(binding.FloatToString(volume)), volumeSlider))
+	mWindow.SetCloseIntercept(func() {
+		mWindow.Hide()
 	})
-	w.Resize(fyne.NewSize(300, 150))
-	w.SetFixedSize(true)
+
+	if desk, ok := mApp.(desktop.App); ok {
+		menu := fyne.NewMenu("Neco Arc Random Sounds", fyne.NewMenuItem("Manage volume", func() {
+			mWindow.Show()
+			mWindow.RequestFocus()
+		}), fyne.NewMenuItem("Donate", func() {
+			u, err := url.Parse("https://paypal.me/elesneils")
+			if err != nil {
+				logrus.Error(err)
+			}
+			err = mApp.OpenURL(u)
+			if err != nil {
+				logrus.Error(err)
+			}
+		}))
+		desk.SetSystemTrayMenu(menu)
+		desk.SetSystemTrayIcon(iconRes)
+	}
+
 	go playAudio()
-	systray.Register(onReady, nil)
-	mainApp.Run()
+
+	mApp.Run()
 }
 
 func playAudio() {
+	vol, err := volume.Get()
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	volumeManager := effects.Volume{
+		Base:   2,
+		Volume: vol,
+		Silent: false,
+	}
+
+	volume.AddListener(binding.NewDataListener(func() {
+		vol, err := volume.Get()
+		if err != nil {
+			logrus.Fatal(err)
+		}
+		speaker.Lock()
+		volumeManager.Volume = vol
+		speaker.Unlock()
+		mApp.Preferences().SetFloat("app-volume", vol)
+	}))
+
 	audioFolder, _ := soundsFs.ReadDir("assets/audio")
 	for {
 		file := audioFolder[r.Intn(len(audioFolder))].Name()
@@ -87,75 +133,28 @@ func playAudio() {
 			continue
 		}
 		logrus.Infof("Playing audio %v", file)
-		if err != nil {
+
+		if err := streamer.Err(); err != nil {
 			logrus.Error(err)
 			continue
 		}
-		play(streamer, format)
+
+		volumeManager.Streamer = streamer
+		play(volumeManager, streamer, format)
 		time.Sleep(time.Duration(r.Intn(maxTime) * int(time.Minute)))
 	}
+
 }
 
-func play(streamer beep.StreamSeekCloser, format beep.Format) {
-	vol, err := volume.Get()
-	volumeManager := effects.Volume{
-		Streamer: streamer,
-		Base:     2,
-		Volume:   vol,
-		Silent:   false,
-	}
-	volume.AddListener(binding.NewDataListener(func() {
-		if err != nil {
-			logrus.Error(err)
-		}
-		speaker.Lock()
-		volumeManager.Volume = vol
-		speaker.Unlock()
-		mainApp.Preferences().SetFloat("app-volume", vol)
-	}))
+func play(manager effects.Volume, streamer beep.StreamSeekCloser, format beep.Format) {
+
 	if err := speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10)); err != nil {
 		logrus.Error(err)
 		return
 	}
 	done := make(chan bool)
-	speaker.Play(beep.Seq(&volumeManager, beep.Callback(func() {
+	speaker.Play(beep.Seq(&manager, beep.Callback(func() {
 		done <- true
 	})))
 	<-done
-	if err := streamer.Err(); err != nil {
-		logrus.Error(err)
-		return
-	}
-}
-
-func onReady() {
-	systray.SetIcon(icon)
-	systray.SetTitle("Neco arc sound player")
-	systray.SetTooltip("Randomly plays neco-arc's sounds over time")
-	manageButton := systray.AddMenuItem("Show Window", "Opens the audio management window")
-	donateBtn := systray.AddMenuItem("Donate", "I appreciate your support")
-	systray.AddSeparator()
-	quitBtn := systray.AddMenuItem("Stop", "Stops the whole app")
-	go func() {
-		for {
-			select {
-			case <-quitBtn.ClickedCh:
-				systray.Quit()
-				mainApp.Quit()
-			case <-donateBtn.ClickedCh:
-				// openbrowser()
-				u, err := url.Parse("https://paypal.me/elesneils")
-				if err != nil {
-					logrus.Error(err)
-				}
-				err = mainApp.OpenURL(u)
-				if err != nil {
-					logrus.Error(err)
-				}
-			case <-manageButton.ClickedCh:
-				w.Show()
-				// w.RequestFocus()
-			}
-		}
-	}()
 }
